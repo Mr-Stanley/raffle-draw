@@ -4,12 +4,13 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Sparkles, ArrowLeft, Users } from "lucide-react"
+import { Trophy, Sparkles, ArrowLeft, Users, StopCircle } from "lucide-react"
 import type { Raffle, Prize, Participant, Winner } from "@/lib/types"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import confetti from "canvas-confetti"
+import { WheelSpinner } from "@/components/wheel-spinner"
 
 interface LiveDrawInterfaceProps {
   raffle: Raffle
@@ -96,32 +97,20 @@ export function LiveDrawInterface({
 
     setIsSpinning(true)
     setWinner(null)
+    setDisplayedName("")
 
-    // Spinning animation
-    let spinCount = 0
-    const spinInterval = setInterval(() => {
-      const randomParticipant = eligibleParticipants[Math.floor(Math.random() * eligibleParticipants.length)]
-      setDisplayedName(randomParticipant.name)
-      spinCount++
+    // Spin for a random duration (2-4 seconds)
+    const spinDuration = 2000 + Math.random() * 2000
 
-      if (spinCount > 30) {
-        clearInterval(spinInterval)
-        selectWinner(eligibleParticipants)
-      }
-    }, 100)
+    setTimeout(() => {
+      selectWinner(eligibleParticipants)
+    }, spinDuration)
   }
 
   const selectWinner = async (eligibleParticipants: Participant[]) => {
+    setIsSpinning(false)
     const selectedWinner = eligibleParticipants[Math.floor(Math.random() * eligibleParticipants.length)]
-    setDisplayedName(selectedWinner.name)
     setWinner(selectedWinner)
-
-    // Trigger confetti
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 },
-    })
 
     // Save winner to database
     if (currentPrize) {
@@ -138,6 +127,15 @@ export function LiveDrawInterface({
       if (data) {
         setWinners([...winners, data])
 
+        // Trigger confetti after a short delay to allow wheel to settle
+        setTimeout(() => {
+          confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+          })
+        }, 500)
+
         // Update prize remaining count
         await supabase
           .from("prizes")
@@ -153,16 +151,31 @@ export function LiveDrawInterface({
 
         if (stillAvailable.length > 0) {
           setCurrentPrize(stillAvailable[0])
+          // Reset winner for next draw
+          setTimeout(() => {
+            setWinner(null)
+          }, 3000)
         } else {
           setCurrentPrize(null)
         }
       }
     }
-
-    setIsSpinning(false)
   }
 
   const completeDraw = async () => {
+    // Confirm before ending draw abruptly
+    const confirmed = window.confirm(
+      `Are you sure you want to end this draw? ${
+        availablePrizes.length > 0
+          ? `There are still ${availablePrizes.length} prize(s) remaining.`
+          : ""
+      } This action cannot be undone.`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
     if (completeRaffle) {
       // Use server action
       const result = await completeRaffle()
@@ -199,13 +212,23 @@ export function LiveDrawInterface({
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
       <header className="border-b bg-white/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Link href={`/admin/raffles/${raffle.id}`}>
             <Button variant="ghost" size="sm">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Exit Draw
             </Button>
           </Link>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={completeDraw}
+            disabled={isSpinning}
+            className="bg-red-600 hover:bg-red-700 disabled:opacity-50"
+          >
+            <StopCircle className="mr-2 h-4 w-4" />
+            {isSpinning ? "Spinning..." : "End Draw"}
+          </Button>
         </div>
       </header>
 
@@ -238,27 +261,43 @@ export function LiveDrawInterface({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg p-8 min-h-[200px] flex items-center justify-center">
-                    {isSpinning || winner ? (
-                      <div className="text-center">
-                        <div className={`text-4xl font-bold mb-4 ${isSpinning ? "animate-pulse" : "animate-bounce"}`}>
-                          {displayedName}
-                        </div>
-                        {winner && (
-                          <div className="flex items-center justify-center gap-2">
-                            <Sparkles className="h-6 w-6 text-yellow-500" />
-                            <span className="text-xl font-semibold text-purple-600">Winner!</span>
-                            <Sparkles className="h-6 w-6 text-yellow-500" />
-                          </div>
-                        )}
-                      </div>
+                  <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg p-4 flex items-center justify-center">
+                    {getEligibleParticipants().length > 0 ? (
+                      <WheelSpinner
+                        participants={getEligibleParticipants()}
+                        isSpinning={isSpinning}
+                        winner={winner}
+                        onSpinComplete={() => {
+                          if (winner) {
+                            confetti({
+                              particleCount: 100,
+                              spread: 70,
+                              origin: { y: 0.6 },
+                            })
+                          }
+                        }}
+                      />
                     ) : (
-                      <p className="text-xl text-muted-foreground">Click draw to select a winner</p>
+                      <div className="text-center py-12">
+                        <p className="text-xl text-muted-foreground">No participants available</p>
+                      </div>
                     )}
                   </div>
 
-                  <Button onClick={startDraw} disabled={isSpinning} className="w-full h-14 text-lg" size="lg">
-                    {isSpinning ? "Drawing..." : "Draw Winner"}
+                  {winner && (
+                    <div className="text-center p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <Sparkles className="h-6 w-6 text-yellow-500" />
+                        <span className="text-2xl font-bold text-purple-600">Winner!</span>
+                        <Sparkles className="h-6 w-6 text-yellow-500" />
+                      </div>
+                      <p className="text-xl font-semibold">{winner.name}</p>
+                      <p className="text-sm text-muted-foreground">{winner.entry_code}</p>
+                    </div>
+                  )}
+
+                  <Button onClick={startDraw} disabled={isSpinning || !currentPrize} className="w-full h-14 text-lg" size="lg">
+                    {isSpinning ? "Spinning..." : "Spin the Wheel"}
                   </Button>
                 </CardContent>
               </Card>

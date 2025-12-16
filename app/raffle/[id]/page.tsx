@@ -139,6 +139,12 @@ export default async function RaffleDetailPage({ params }: { params: Promise<{ i
                     </div>
                     <p className="font-medium mb-2">Draw is happening now!</p>
                     <p className="text-sm text-muted-foreground mb-4">Watch the live draw to see the winners</p>
+                    <Link href={`/raffle/${raffle.id}/live`}>
+                      <Button className="w-full" size="lg">
+                        <Gift className="mr-2 h-4 w-4" />
+                        Watch Live Draw
+                      </Button>
+                    </Link>
                   </div>
                 ) : (
                   <div className="text-center py-8">

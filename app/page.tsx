@@ -85,7 +85,17 @@ export default async function HomePage() {
               </div>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto">
                 {liveRaffles.map((raffle) => (
-                  <RaffleCard key={raffle.id} raffle={raffle} />
+                  <div key={raffle.id} className="relative">
+                    <RaffleCard raffle={raffle} />
+                    <Link
+                      href={`/raffle/${raffle.id}/live`}
+                      className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 hover:opacity-100 transition-opacity rounded-lg"
+                    >
+                      <Button size="lg" className="bg-white text-black hover:bg-white/90">
+                        Watch Live
+                      </Button>
+                    </Link>
+                  </div>
                 ))}
               </div>
             </div>
