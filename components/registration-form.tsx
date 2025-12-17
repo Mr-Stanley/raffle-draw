@@ -31,11 +31,27 @@ export function RegistrationForm({ raffleId, participantCount }: RegistrationFor
 
     const formData = new FormData(e.currentTarget)
     const name = formData.get("name") as string
-    const email = formData.get("email") as string
+    const email = formData.get("email")?.toString().toLowerCase().trim() as string
     const phone = formData.get("phone") as string
 
-    // Generate entry code
-    const generatedCode = `RAFFLE-${String(participantCount + 1).padStart(4, "0")}`
+    // Check if user is already registered before attempting insert
+    const { data: existingParticipant } = await supabase
+      .from("participants")
+      .select("id, email")
+      .eq("raffle_id", raffleId)
+      .eq("email", email)
+      .single()
+
+    if (existingParticipant) {
+      setError("This email is already registered for this raffle. Please use a different email address.")
+      setIsLoading(false)
+      return
+    }
+
+    // Generate unique entry code using timestamp and random number to avoid collisions
+    const timestamp = Date.now().toString().slice(-6)
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0")
+    const generatedCode = `RAFFLE-${timestamp}-${random}`
 
     try {
       const { data, error } = await supabase
@@ -51,19 +67,52 @@ export function RegistrationForm({ raffleId, participantCount }: RegistrationFor
         .single()
 
       if (error) {
+        // Handle specific error cases
         if (error.code === "23505") {
-          setError("You have already registered for this raffle")
+          // Check if it's an entry_code conflict (should be rare now)
+          if (error.message.includes("entry_code")) {
+            // Retry with a new code
+            const retryTimestamp = Date.now().toString().slice(-6)
+            const retryRandom = Math.floor(Math.random() * 10000).toString().padStart(4, "0")
+            const retryCode = `RAFFLE-${retryTimestamp}-${retryRandom}`
+            
+            const { data: retryData, error: retryError } = await supabase
+              .from("participants")
+              .insert({
+                raffle_id: raffleId,
+                name,
+                email,
+                phone,
+                entry_code: retryCode,
+              })
+              .select()
+              .single()
+
+            if (retryError) {
+              setError("Registration failed. Please try again.")
+              return
+            }
+
+            setSuccess(true)
+            setEntryCode(retryData.entry_code)
+            router.refresh()
+            return
+          } else {
+            // Email conflict (shouldn't happen due to pre-check, but handle it)
+            setError("This email is already registered for this raffle.")
+            return
+          }
         } else {
-          setError(error.message)
+          setError(error.message || "Registration failed. Please try again.")
+          return
         }
-        return
       }
 
       setSuccess(true)
       setEntryCode(data.entry_code)
       router.refresh()
     } catch (err) {
-      setError("An unexpected error occurred")
+      setError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
