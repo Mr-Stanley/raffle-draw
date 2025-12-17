@@ -34,6 +34,29 @@ export function RegistrationForm({ raffleId, participantCount }: RegistrationFor
     const email = formData.get("email")?.toString().toLowerCase().trim() as string
     const phone = formData.get("phone") as string
 
+    // Validate raffle exists and is still open for registration
+    const { data: raffle, error: raffleError } = await supabase
+      .from("raffles")
+      .select("id, status")
+      .eq("id", raffleId)
+      .single()
+
+    if (raffleError || !raffle) {
+      setError("This raffle no longer exists or is invalid. Please refresh the page.")
+      setIsLoading(false)
+      return
+    }
+
+    if (raffle.status !== "upcoming") {
+      setError(
+        raffle.status === "live"
+          ? "Registration is closed. This raffle draw is currently live."
+          : "Registration is closed. This raffle has ended."
+      )
+      setIsLoading(false)
+      return
+    }
+
     // Check if user is already registered before attempting insert
     const { data: existingParticipant } = await supabase
       .from("participants")
@@ -68,8 +91,12 @@ export function RegistrationForm({ raffleId, participantCount }: RegistrationFor
 
       if (error) {
         // Handle specific error cases
-        if (error.code === "23505") {
-          // Check if it's an entry_code conflict (should be rare now)
+        if (error.code === "23503") {
+          // Foreign key constraint violation - raffle doesn't exist
+          setError("This raffle no longer exists. Please refresh the page and try again.")
+          return
+        } else if (error.code === "23505") {
+          // Unique constraint violation
           if (error.message.includes("entry_code")) {
             // Retry with a new code
             const retryTimestamp = Date.now().toString().slice(-6)
@@ -89,7 +116,11 @@ export function RegistrationForm({ raffleId, participantCount }: RegistrationFor
               .single()
 
             if (retryError) {
-              setError("Registration failed. Please try again.")
+              if (retryError.code === "23503") {
+                setError("This raffle no longer exists. Please refresh the page.")
+              } else {
+                setError("Registration failed. Please try again.")
+              }
               return
             }
 
